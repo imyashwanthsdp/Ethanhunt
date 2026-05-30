@@ -19,23 +19,22 @@ function App() {
 
   const sessionId = "user-1";
   const chatEndRef = useRef(null);
-  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Clean, Non-Streaming implementation to pull structured JSON data smoothly
   const generateReport = async () => {
     if (!topic.trim()) return;
 
     const userMessage = topic;
-    abortControllerRef.current = new AbortController();
-
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setTopic("");
     setLoading(true);
 
-    setMessages((prev) => [...prev, { role: "ai", content: "" }]);
+    // Initial temporary status state while the backend performs its web crawl/inference cycles
+    setMessages((prev) => [...prev, { role: "ai", content: "Thinking..." }]);
 
     try {
       const res = await fetch("https://ethanhunt.onrender.com/research", {
@@ -46,87 +45,45 @@ function App() {
         body: JSON.stringify({
           topic: userMessage,
           session_id: sessionId
-        }),
-        signal: abortControllerRef.current.signal,
+        })
       });
 
       if (!res.ok) {
         throw new Error(`Server error: ${res.status}`);
       }
 
-      // Safeguard check: If response lacks a body stream reader, parse as basic JSON
-      const contentType = res.headers.get("content-type");
-      if (res.body && contentType && contentType.includes("text/event-stream")) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let text = "";
+      const data = await res.json();
+      
+      // Update the chat message placeholder with the complete response
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1].content = data.response;
+        return updated;
+      });
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          text += decoder.decode(value, { stream: true });
-
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1].content = text;
-            return updated;
-          });
-        }
-
-        if (text) {
-          setHistory(prev => [
-            { id: Date.now().toString(), title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, date: "Just Now" },
-            ...prev
-          ]);
-        }
-      } else {
-        // Safe Fallback: Handle static, non-streaming JSON payloads cleanly
-        const data = await res.json();
-        const replyText = data.response || data.output || data.message || JSON.stringify(data);
-        
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content = replyText;
-          return updated;
-        });
-
-        setHistory(prev => [
-          { id: Date.now().toString(), title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, date: "Just Now" },
-          ...prev
-        ]);
-      }
+      // Update Exploration Sidebar history logs
+      setHistory(prev => [
+        { 
+          id: Date.now().toString(), 
+          title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, 
+          date: "Just Now" 
+        },
+        ...prev
+      ]);
 
     } catch (err) {
-      if (err.name === "AbortError") {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content += "\n\n*(Research stopped by user)*";
-          return updated;
-        });
-      } else {
-        console.error("Detailed Browser Error Object:", err);
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content = "⚠️ Connection error. Please verify your backend CORS placement or examine the F12 console.";
-          return updated;
-        });
-      }
+      console.error("Detailed Browser Error Object:", err);
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1].content = "⚠️ Failed to fetch insights. Please try your request again.";
+        return updated;
+      });
     }
 
     setLoading(false);
-    abortControllerRef.current = null;
-  };
-
-  const handleStopStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setLoading(false);
-    }
   };
 
   const handleClearHistory = () => {
-    handleStopStreaming();
     setMessages([]);
     setTopic("");
   };
@@ -187,7 +144,7 @@ function App() {
               </button>
             )}
             <div className="navbar-brand-title">
-              <h1><h1>♾️EthanHunt</h1></h1>
+              <h1>♾️EthanHunt</h1>
             </div>
           </div>
 
@@ -262,15 +219,9 @@ function App() {
               disabled={loading}
             />
 
-            {loading ? (
-              <button onClick={handleStopStreaming} className="stop-btn">
-                <span className="stop-icon"></span> Stop
-              </button>
-            ) : (
-              <button onClick={generateReport} disabled={!topic.trim()} className="send-btn">
-                ➤
-              </button>
-            )}
+            <button onClick={generateReport} disabled={!topic.trim() || loading} className="send-btn">
+              {loading ? "..." : "➤"}
+            </button>
           </div>
         </div>
 
