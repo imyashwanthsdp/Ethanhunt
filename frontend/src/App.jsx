@@ -39,16 +39,79 @@ function App() {
 
     try {
       const res = await fetch("https://ethanhunt.onrender.com/research", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    topic: userMessage,
-    session_id: sessionId
-  }),
-  signal: abortControllerRef.current.signal,
-});
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          topic: userMessage,
+          session_id: sessionId
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+
+      // Check if the server response is actually streamable
+      if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let text = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          text += decoder.decode(value, { stream: true });
+
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1].content = text;
+            return updated;
+          });
+        }
+
+        if (text) {
+          setHistory(prev => [
+            { id: Date.now().toString(), title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, date: "Just Now" },
+            { id: "h-2", title: "Statistical Probability Models", date: "Yesterday" },
+            { id: "h-3", title: "Neural Architecture Search", date: "3 days ago" }
+          ]);
+        }
+      } else {
+        // Fallback fallback: Parse it as normal JSON if your backend isn't streaming yet
+        const data = await res.json();
+        const replyText = data.response || data.output || JSON.stringify(data);
+        
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1].content = replyText;
+          return updated;
+        });
+      }
+
+    } catch (err) {
+      if (err.name === "AbortError") {
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1].content += "\n\n*(Research stopped by user)*";
+          return updated;
+        });
+      } else {
+        console.error("Fetch detailed crash log:", err); // Helps you see errors in the F12 panel
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1].content = "⚠️ Connection error. Please check browser console or verify CORS.";
+          return updated;
+        });
+      }
+    }
+
+    setLoading(false);
+    abortControllerRef.current = null;
+  };
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder("utf-8");
