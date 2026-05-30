@@ -54,8 +54,9 @@ function App() {
         throw new Error(`Server error: ${res.status}`);
       }
 
-      // Check if the server response is actually streamable
-      if (res.body) {
+      // Safeguard check: If response lacks a body stream reader, parse as basic JSON
+      const contentType = res.headers.get("content-type");
+      if (res.body && contentType && contentType.includes("text/event-stream")) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let text = "";
@@ -76,61 +77,20 @@ function App() {
         if (text) {
           setHistory(prev => [
             { id: Date.now().toString(), title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, date: "Just Now" },
-            { id: "h-2", title: "Statistical Probability Models", date: "Yesterday" },
-            { id: "h-3", title: "Neural Architecture Search", date: "3 days ago" }
+            ...prev
           ]);
         }
       } else {
-        // Fallback fallback: Parse it as normal JSON if your backend isn't streaming yet
+        // Safe Fallback: Handle static, non-streaming JSON payloads cleanly
         const data = await res.json();
-        const replyText = data.response || data.output || JSON.stringify(data);
+        const replyText = data.response || data.output || data.message || JSON.stringify(data);
         
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1].content = replyText;
           return updated;
         });
-      }
 
-    } catch (err) {
-      if (err.name === "AbortError") {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content += "\n\n*(Research stopped by user)*";
-          return updated;
-        });
-      } else {
-        console.error("Fetch detailed crash log:", err); // Helps you see errors in the F12 panel
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content = "⚠️ Connection error. Please check browser console or verify CORS.";
-          return updated;
-        });
-      }
-    }
-
-    setLoading(false);
-    abortControllerRef.current = null;
-  };
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let text = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        text += decoder.decode(value, { stream: true });
-
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1].content = text;
-          return updated;
-        });
-      }
-
-      if (text) {
         setHistory(prev => [
           { id: Date.now().toString(), title: userMessage.length > 28 ? userMessage.substring(0, 28) + "..." : userMessage, date: "Just Now" },
           ...prev
@@ -145,9 +105,10 @@ function App() {
           return updated;
         });
       } else {
+        console.error("Detailed Browser Error Object:", err);
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1].content = "⚠️ Please try again.";
+          updated[updated.length - 1].content = "⚠️ Connection error. Please verify your backend CORS placement or examine the F12 console.";
           return updated;
         });
       }
@@ -212,7 +173,6 @@ function App() {
             <span className="contact-icon">✉</span> Contact Support
           </a>
         </div>
-      
       </aside>
 
       {/* MAIN CONTENT STAGE */}
@@ -227,8 +187,7 @@ function App() {
               </button>
             )}
             <div className="navbar-brand-title">
-              
-              <h1>♾️EthanHunt</h1>
+              <h1><h1>♾️EthanHunt</h1></h1>
             </div>
           </div>
 
@@ -238,26 +197,19 @@ function App() {
                 Clear
               </button>
             )}
-           
           </div>
         </header>
 
         {/* CONTAINER CHAT COMPONENT */}
         <div className="chat-container">
           <div className="chat-wrapper">
-            
             <div className="chat-box">
               {messages.length === 0 && (
                 <div className="empty-state">
                   <div className="pulse-icon">♾️</div>
                   <h1>EthanHunt</h1>
-                  
-
                   <p>Advanced neural network architecture delivering context-aware insights in real time.</p>
-                  
-                  
-                  </div>
-                
+                </div>
               )}
 
               {messages.map((msg, index) => (
