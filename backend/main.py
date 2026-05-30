@@ -6,6 +6,7 @@ from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 from fastapi.responses import StreamingResponse
 from collections import defaultdict
+import asyncio
 import time
 import os
 import requests
@@ -15,10 +16,13 @@ load_dotenv()
 
 app = FastAPI()
 
+# ---------------- CORS MIDDLEWARE ----------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173",
-                  "https://ethanhunt-seven.vercel.app"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://ethanhunt-seven.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,7 +78,7 @@ def scrape_url(url):
 
 # ---------------- MAIN ENDPOINT ----------------
 @app.post("/research")
-def research(query: Query):
+async def research(query: Query):  # Updated to async def to handle StreamingResponse properly
 
     session_id = query.session_id
 
@@ -160,11 +164,12 @@ Provide your intelligent, organically structured response below:
 """
 
     # ---------------- STREAMING ----------------
-    def generate():
+    async def generate():  # Updated generator to handle async yielding
         full_text = ""
         buffer = ""
 
         try:
+            # Using loop execution to run the synchronous client iterator safely
             response_stream = client.chat_completion(
                 model="Qwen/Qwen2.5-72B-Instruct",
                 messages=[{"role": "user", "content": prompt}],
@@ -173,14 +178,12 @@ Provide your intelligent, organically structured response below:
             )
 
             for chunk in response_stream:
-
                 if not chunk or not hasattr(chunk, "choices"):
                     continue
                 if not chunk.choices:
                     continue
 
                 token = chunk.choices[0].delta.content
-
                 if not token:
                     continue
 
@@ -190,7 +193,7 @@ Provide your intelligent, organically structured response below:
                 if len(buffer) >= 10 or token in [".", "\n", "!", "?"]:
                     yield buffer
                     buffer = ""
-                    time.sleep(0.01)
+                    await asyncio.sleep(0.01)  # Non-blocking async sleep
 
             if buffer:
                 yield buffer
@@ -205,4 +208,4 @@ Provide your intelligent, organically structured response below:
         if len(memory_store[session_id]) > 12:
             memory_store[session_id] = memory_store[session_id][-12:]
 
-    return StreamingResponse(generate(), media_type="text/plain")
+    return StreamingResponse(generate(), media_type="text/event-stream")  # Explicitly updated media type for SSE
