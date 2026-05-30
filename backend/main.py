@@ -4,10 +4,7 @@ from pydantic import BaseModel
 from duckduckgo_search import DDGS
 from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
-from fastapi.responses import StreamingResponse
 from collections import defaultdict
-import asyncio
-import time
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -16,14 +13,11 @@ load_dotenv()
 
 app = FastAPI()
 
-# ---------------- CORS MIDDLEWARE ----------------
+# ---------------- CORS MIDDLEWARE (OPEN FOR RELIABILITY) ----------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://ethanhunt-seven.vercel.app"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allows trouble-free preflight connections from any host
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -59,7 +53,7 @@ def search_web(query):
 def scrape_url(url):
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         res = requests.get(url, headers=headers, timeout=6)
         res.raise_for_status()
@@ -76,9 +70,9 @@ def scrape_url(url):
         return ""
 
 
-# ---------------- MAIN ENDPOINT ----------------
+# ---------------- MAIN ENDPOINT (CLEAN JSON PAYLOAD) ----------------
 @app.post("/research")
-async def research(query: Query):  # Updated to async def to handle StreamingResponse properly
+def research(query: Query):
 
     session_id = query.session_id
 
@@ -163,49 +157,25 @@ WEB DATA:
 Provide your intelligent, organically structured response below:
 """
 
-    # ---------------- STREAMING ----------------
-    async def generate():  # Updated generator to handle async yielding
-        full_text = ""
-        buffer = ""
+    # ---------------- STANDARD EXECUTION FLOW ----------------
+    try:
+        # Standard synchronous inference request
+        response = client.chat_completion(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            stream=False
+        )
+        ai_response = response.choices[0].message.content
+    except Exception as e:
+        ai_response = f"⚠️ [System Inference Error]: {str(e)}"
 
-        try:
-            # Using loop execution to run the synchronous client iterator safely
-            response_stream = client.chat_completion(
-                model="Qwen/Qwen2.5-72B-Instruct",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1500,
-                stream=True
-            )
+    # ---------------- MEMORY UTILITY LAYER ----------------
+    memory_store[session_id].append(f"User: {query.topic}")
+    memory_store[session_id].append(f"AI: {ai_response}")
 
-            for chunk in response_stream:
-                if not chunk or not hasattr(chunk, "choices"):
-                    continue
-                if not chunk.choices:
-                    continue
+    if len(memory_store[session_id]) > 12:
+        memory_store[session_id] = memory_store[session_id][-12:]
 
-                token = chunk.choices[0].delta.content
-                if not token:
-                    continue
-
-                buffer += token
-                full_text += token
-
-                if len(buffer) >= 10 or token in [".", "\n", "!", "?"]:
-                    yield buffer
-                    buffer = ""
-                    await asyncio.sleep(0.01)  # Non-blocking async sleep
-
-            if buffer:
-                yield buffer
-
-        except Exception as e:
-            yield f"\n\n[System Error]: {str(e)}"
-
-        # ---------------- MEMORY SAVE (SAFE) ----------------
-        memory_store[session_id].append(f"User: {query.topic}")
-        memory_store[session_id].append(f"AI: {full_text}")
-
-        if len(memory_store[session_id]) > 12:
-            memory_store[session_id] = memory_store[session_id][-12:]
-
-    return StreamingResponse(generate(), media_type="text/event-stream")  # Explicitly updated media type for SSE
+    # Returns data perfectly matching your frontend's JSON parsing expectation
+    return {"response": ai_response}
