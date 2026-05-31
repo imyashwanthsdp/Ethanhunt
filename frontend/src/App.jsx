@@ -10,7 +10,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [history, setHistory] = useState([
     { id: "h-1", title: "Quantum Computing Frameworks", date: "Today" },
     { id: "h-2", title: "Statistical Probability Models", date: "Yesterday" },
